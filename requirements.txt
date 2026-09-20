@@ -1,0 +1,8 @@
+# Core — needed to decode a log and build the dashboard
+pycryptodome>=3.19        # AES-128-ECB, for the binary log format
+
+# Only needed for the S3 ingest pipeline (sync/) and the AWS deployment (aws/)
+boto3>=1.28
+
+# Only needed to regenerate dashboard/GUIDE.md as a PDF
+mistune>=3.0

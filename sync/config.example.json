@@ -1,0 +1,33 @@
+{
+  "_readme": [
+    "Copy this to config.json and edit. install.ps1 / install.sh does that for you.",
+    "Credentials are NOT stored here. boto3 picks them up from the standard chain:",
+    "an IAM role on the instance, `aws configure`, or AWS_ACCESS_KEY_ID /",
+    "AWS_SECRET_ACCESS_KEY in the environment. Never put a key in this file."
+  ],
+
+  "source": {
+    "_type": "'s3' for the real bucket, 'local' for a directory standing in for it",
+    "type": "s3",
+    "bucket": "",
+    "prefix": "logs/",
+    "region": "me-central-1",
+    "profile": null,
+    "endpoint_url": null
+  },
+
+  "_devices": "empty = every device found. List IMEIs to restrict, e.g. [\"862636058411560\"]",
+  "devices": [],
+
+  "_inbox": "where downloads land, relative to sync/. Never inside 'Not mine/'.",
+  "inbox": "inbox",
+
+  "_select": "which logs the dashboard is built from: latest-day | latest-file | all",
+  "select": "latest-day",
+
+  "_gate_pct": "valid-record percentage the firmware must reach. Reported every run.",
+  "gate_pct": 99.0,
+
+  "rebuild_dashboard": true,
+  "max_files_per_run": 500
+}

@@ -1,0 +1,20 @@
+{
+  "_readme": [
+    "The no-AWS configuration. Points the sync at a directory instead of a bucket,",
+    "which is how the pipeline was tested before the bucket existed. The source is",
+    "read-only: files are copied out, never written back, so aiming it at",
+    "'Not mine/' cannot modify the vendor files."
+  ],
+
+  "source": {
+    "type": "local",
+    "path": "../../Not mine"
+  },
+
+  "devices": [],
+  "inbox": "inbox",
+  "select": "latest-day",
+  "gate_pct": 99.0,
+  "rebuild_dashboard": true,
+  "max_files_per_run": 500
+}

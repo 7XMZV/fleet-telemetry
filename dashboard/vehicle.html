@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlueICE Fleet Vehicle</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
+<style>
+  :root{
+    --bg:#0d0d0d; --panel:#161b22; --panel-2:#1c232c; --line:#2c2c2a;
+    --ink:#e6edf3; --ink-2:#c3c2b7; --muted:#898781;
+    /* Validated all-pairs on this surface: CVD ΔE 9.4, normal-vision ΔE 20.9 */
+    --working:#3987e5; --idle:#d95926; --carried:#199e70;
+    --off:#6b7785; --offline:#484f58; --warning:#fab219;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);overflow:hidden}
+  button,select,input{font:inherit;color:inherit}
+  button,select{cursor:pointer}
+  button:active{transform:translateY(1px)}
+  .veh:active svg{transform-origin:center;scale:.94}
+
+  .app{display:flex;flex-direction:column;height:100dvh}
+  header{display:flex;align-items:center;gap:14px;padding:11px 20px;
+    background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap;flex:none}
+  .brand{font-weight:650;letter-spacing:.3px}
+  .brand small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
+  header select{padding:7px 10px;background:var(--bg);border:1px solid var(--line);
+    border-radius:7px;max-width:330px}
+  #fleetBtn{margin-left:auto;padding:7px 13px;background:var(--bg);
+    border:1px solid var(--line);border-radius:7px;font-size:12.5px;color:var(--ink-2)}
+  #fleetBtn[aria-pressed=true]{background:rgba(57,135,229,.2);border-color:var(--working);
+    color:#fff;font-weight:600}
+
+  /* Fleet view: every machine at once. Markers are smaller than the single
+     vehicle's -- at fleet scale the dot is a position, not a readout. */
+  .fveh{width:20px;height:20px;cursor:pointer;
+    filter:drop-shadow(0 2px 4px rgba(0,0,0,.75))}
+  .fveh svg{width:100%;height:100%;display:block}
+  .fveh .body{fill:currentColor}
+  .fveh .glass{fill:rgba(255,255,255,.9)}
+  .fveh.sel{outline:2px solid var(--ink);outline-offset:3px;border-radius:50%}
+  .flist{max-height:none}
+  .frow{display:flex;align-items:center;gap:10px;padding:9px 4px;
+    border-bottom:1px solid var(--line);cursor:pointer}
+  .frow:last-child{border-bottom:0}
+  .frow:hover{background:var(--panel-2)}
+  .frow .dot{width:11px;height:11px;border-radius:3px;flex:none}
+  .frow .nm{flex:1;font-size:12.5px;color:var(--ink)}
+  .frow .nm small{display:block;font-size:11px;color:var(--muted)}
+  .frow .val{font:600 15px/1 var(--mono);color:var(--ink-2);white-space:nowrap}
+  .fcount{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+  .fcount span{display:inline-flex;align-items:center;gap:6px;font-size:12px;
+    color:var(--ink-2);background:var(--panel-2);border:1px solid var(--line);
+    border-radius:6px;padding:5px 9px}
+  .fcount i{width:9px;height:9px;border-radius:2px}
+
+  main{position:relative;flex:1;min-height:0}
+  #map{position:absolute;inset:0}
+
+  .hint{position:absolute;left:50%;top:18px;transform:translateX(-50%);z-index:3;
+    background:rgba(22,27,34,.95);border:1px solid var(--line);border-radius:20px;
+    padding:8px 16px;font-size:12.5px;color:var(--ink-2);pointer-events:none;
+    display:flex;align-items:center;gap:8px}
+  .hint b{color:var(--ink)}
+  .hint .pip{width:9px;height:9px;border-radius:50%;background:var(--working)}
+
+  /* live marker */
+  .veh{width:30px;height:30px;cursor:pointer;position:relative;
+    filter:drop-shadow(0 2px 4px rgba(0,0,0,.75))}
+  .veh svg{width:100%;height:100%;display:block;
+    transition:transform .35s cubic-bezier(.16,1,.3,1)}
+  .veh .body{fill:currentColor}
+  .veh .glass{fill:rgba(255,255,255,.92)}
+  .veh .roof{fill:rgba(255,255,255,.34)}
+  .veh .wheel{fill:#0d0d0d}
+  .veh .readout{position:absolute;left:38px;top:50%;transform:translateY(-50%);
+    white-space:nowrap;background:rgba(22,27,34,.95);border:1px solid var(--line);
+    border-left:3px solid currentColor;border-radius:9px;padding:6px 11px 7px;
+    pointer-events:none;box-shadow:0 8px 22px rgba(0,0,0,.6)}
+  .veh .readout .rs{display:block;font-size:11px;line-height:1.25;color:var(--ink-2)}
+  .veh .readout .rr{font:600 18px/1.15 var(--mono);color:var(--ink)}
+  .veh .readout .rr small{font-size:10px;color:var(--muted);margin-left:3px;font-weight:400}
+  .veh::after{content:"";position:absolute;inset:-8px;border-radius:50%;
+    border:2px solid currentColor;opacity:.7;animation:pulse 2s ease-out infinite}
+  @keyframes pulse{0%{transform:scale(.5);opacity:.8}100%{transform:scale(1.35);opacity:0}}
+  @media (prefers-reduced-motion:reduce){
+    .veh::after{animation:none;opacity:.35}
+    .veh svg{transition:none}
+  }
+
+  /* the dashboard — hidden until the vehicle is clicked.
+     The shell itself is transparent; each section is its own card. */
+  .dash{position:absolute;top:14px;right:14px;width:370px;max-height:calc(100% - 28px);
+    display:none;flex-direction:column;gap:10px;z-index:4;overflow-y:auto;
+    padding-right:2px;scrollbar-width:thin}
+  .dash.open{display:flex}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+    box-shadow:0 12px 34px rgba(0,0,0,.5);flex:none}
+
+  /* left rail: one card per parameter */
+  .rail{position:absolute;left:14px;top:14px;z-index:4;display:none;
+    flex-direction:column;gap:8px;width:214px;max-height:calc(100% - 92px);
+    overflow-y:auto;padding-right:2px;scrollbar-width:thin}
+  .rail.open{display:flex}
+  /* A visible edge when there is more below. A column that simply stops looks
+     complete, and a supervisor never scrolls for a number they cannot see. */
+  .rail.more, .dash.more{
+    -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent);
+    mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent)}
+  .pcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;box-shadow:0 10px 26px rgba(0,0,0,.45);flex:none}
+  /* Labels sit at --ink-2, not --muted. This screen is read on a laptop in
+     poor light and is regularly projected; muted grey at 9.5px did not survive
+     either. See DESIGN.md 8. */
+  .pcard span{display:block;font-size:11px;letter-spacing:.6px;
+    text-transform:uppercase;color:var(--ink-2)}
+  .pcard b{display:block;font:600 27px/1.15 var(--mono);margin-top:3px}
+  /* The unit rides with the number instead of orphaning onto the line below,
+     so "-58.6 L" reads as one value rather than two things to reassemble. */
+  .pcard b i{font-style:normal;font-size:14px;font-weight:500;
+    color:var(--muted);margin-left:3px;letter-spacing:0}
+  .pcard b.na{color:var(--muted);font-weight:400}
+  .pcard em{font-style:normal;display:block;font-size:11.5px;color:var(--muted);
+    margin-top:2px}
+  /* A word, not a measurement: "Engine off" at the numeric size would not fit
+     the card, and a state is not read digit by digit anyway. */
+  .pcard.txt b{font:600 19px/1.2 var(--sans);letter-spacing:.2px}
+  .pcard.warn{border-color:rgba(217,89,38,.42);background:rgba(217,89,38,.09)}
+  .pcard.warn b{color:var(--idle)}
+  .pcard.warn b i{color:var(--idle);opacity:.8}
+
+  /* Entrance: panels arrive in reading order so the eye lands on the vehicle
+     name first and the numbers last. Transform + opacity only. */
+  @media (prefers-reduced-motion:no-preference){
+    .dash.anim .panel, .rail.anim .pcard{
+      animation:panelIn .42s cubic-bezier(.16,1,.3,1) backwards;
+      animation-delay:calc(var(--i,0) * 70ms);
+    }
+  }
+  @keyframes panelIn{
+    from{opacity:0;transform:translateY(10px) scale(.985)}
+    to{opacity:1;transform:none}
+  }
+
+  .dh{padding:13px 15px 12px;position:relative}
+  .dh h3{margin:0;font:600 16px/1.25 var(--mono);padding-right:28px}
+  .dh p{margin:3px 0 0;font-size:12px;color:var(--muted)}
+  .dh .x{position:absolute;top:9px;right:9px;background:none;border:0;color:var(--muted);
+    font-size:20px;line-height:1;padding:2px 8px;border-radius:6px}
+  .dh .x:hover{background:var(--panel-2);color:var(--ink)}
+  .modes{display:flex;margin-top:11px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .modes button{flex:1;padding:8px;background:var(--panel-2);border:0;font-size:12.5px;
+    color:var(--ink-2);border-right:1px solid var(--line)}
+  .modes button:last-child{border-right:0}
+  .modes button[aria-pressed=true]{background:rgba(57,135,229,.2);color:#fff;font-weight:600}
+  .modes button:disabled{opacity:.4;cursor:not-allowed}
+  .dbody{display:flex;flex-direction:column;gap:10px}
+  .panel-pad{padding:14px 15px}
+
+  .state{display:flex;align-items:center;gap:9px}
+  .state .dot{width:12px;height:12px;border-radius:50%;flex:none}
+  .state b{font-size:16px}
+  .state .ago{margin-left:auto;font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+  .rpm{margin-top:10px;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:9px;padding:12px 14px}
+  .rpm .big{font:600 42px/1.05 var(--mono)}
+  .rpm .big small{font-size:13px;font-weight:400;color:var(--muted);margin-left:5px}
+  .rpm .lab{font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-2)}
+  .nowbox{margin-top:0;border-color:rgba(57,135,229,.45)}
+  .nowbox .big{margin-top:2px}
+  .spark{width:100%;height:58px;display:block;margin-top:8px}
+  .sparkcap{font-size:11px;color:var(--muted);margin-top:3px;display:flex;justify-content:space-between}
+  /* Two series always carry a legend, so identity is never colour alone.
+     The text stays in ink; the swatch beside it carries the identity. */
+  .legend{display:flex;gap:15px;margin:7px 0 0;font-size:11.5px;color:var(--ink-2)}
+  .legend span{display:inline-flex;align-items:center}
+  .legend i{width:10px;height:10px;border-radius:2px;margin-right:6px;display:inline-block}
+
+  /* Shift totals. Numbers right-aligned in a column so they can be compared
+     down the page without reading across to find each one. */
+  .tot{display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+    padding:9px 0;border-bottom:1px solid var(--line)}
+  .tot:last-child{border-bottom:0}
+  .tot .k{font-size:12.5px;color:var(--ink-2)}
+  .tot .k em{font-style:normal;display:block;font-size:11px;color:var(--muted);
+    margin-top:1px}
+  .tot .v{font:600 19px/1 var(--mono);color:var(--ink);white-space:nowrap}
+  .tot .v i{font-style:normal;font-size:12px;font-weight:500;color:var(--muted);
+    margin-left:3px}
+  .tot .v.na{color:var(--muted);font-weight:400}
+  /* The cost rows: fuel burned for no output, and fuel nobody can account
+     for. Same orange that means "this is costing you money" everywhere else. */
+  .tot.cost .v, .tot.cost .v i{color:var(--idle)}
+  .tot.cost .k{color:var(--ink)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}
+  .c{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  .c span{display:block;font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+  .c b{display:block;font:600 18px/1.25 var(--mono);margin-top:2px}
+  .c b.na{color:var(--muted);font-weight:400}
+  .c em{font-style:normal;font-size:10.5px;color:var(--muted)}
+  .c.warn{border-color:rgba(217,89,38,.4);background:rgba(217,89,38,.08)}
+  .c.warn b{color:var(--idle)}
+
+
+  /* time-range picker */
+  .range{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:11px 12px}
+  .range .row{display:flex;gap:8px;align-items:flex-end}
+  /* Without min-width:0 a flex child refuses to shrink below its content, and
+     a datetime-local input is wide enough to push the whole panel off screen. */
+  .range .row > div{min-width:0;flex:1}
+  .range label{display:block;font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;
+    color:var(--muted);margin-bottom:4px}
+  .range input[type=time], .range input[type=datetime-local]{
+    width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg);
+    border:1px solid var(--line);border-radius:6px;font-family:var(--mono);
+    font-size:12px}
+  .range .avail{margin-top:9px;font-size:11.5px;color:var(--muted)}
+  .range .avail b{color:var(--ink-2);font-family:var(--mono)}
+  .range .out{margin-top:7px;font-size:11.5px;color:var(--ink-2)}
+  .range .out b{color:var(--ink);font-family:var(--mono)}
+  .range .err{color:var(--warning)}
+
+
+  .note{margin-top:11px;padding:9px 11px;border-radius:7px;background:var(--panel-2);
+    border:1px solid var(--line);font-size:11.5px;color:var(--ink-2);line-height:1.5}
+  .note b{color:var(--ink)}
+  .note.warn{background:rgba(250,178,25,.08);border-color:rgba(250,178,25,.33)}
+
+  .player{position:absolute;left:14px;right:398px;bottom:14px;z-index:3;display:none;
+    align-items:center;gap:12px;background:rgba(22,27,34,.96);border:1px solid var(--line);
+    border-radius:10px;padding:10px 14px}
+  .player.on{display:flex}
+  .player button{width:34px;height:34px;flex:none;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel-2);font-size:13px;line-height:1}
+  .ribbon{position:relative;flex:1;height:30px;border-radius:5px;overflow:hidden;
+    background:#0a0a0a;border:1px solid var(--line);cursor:pointer;user-select:none}
+  .ribbon svg{display:block;width:100%;height:100%}
+  .ribbon:focus{outline:2px solid var(--working);outline-offset:1px}
+  .ribHead{position:absolute;top:0;bottom:0;width:2px;background:#fff;
+    box-shadow:0 0 5px rgba(0,0,0,.9);pointer-events:none;transform:translateX(-1px)}
+  .player .clock{font:600 13px var(--mono);min-width:58px;text-align:center}
+  .player .st{font-size:11.5px;color:var(--muted);min-width:128px;font-family:var(--mono)}
+  /* Below 820px everything unstacks into one scrolling column. Absolutely
+     positioned rails and panels overlap each other and bury the map on a
+     phone, so on mobile nothing floats. */
+  @media(max-width:820px){
+    body{overflow:auto}
+    .app{height:auto;min-height:100dvh}
+    main{flex:none;display:flex;flex-direction:column}
+    #map{position:relative;inset:auto;height:44dvh;min-height:260px;order:0}
+    .hint{position:static;transform:none;margin:10px auto 0;order:1}
+    #offline{position:static!important;transform:none!important;left:auto!important;
+      top:auto!important;margin:10px 14px 0;max-width:none;order:2}
+    .dash{position:static;width:auto;max-height:none;margin:10px 14px 0;
+      overflow:visible;order:3}
+    .player{position:static;margin:10px 14px 0;order:4}
+    .rail{position:static;width:auto;max-height:none;margin:10px 14px 14px;
+      overflow:visible;order:5;display:none}
+    .rail.open{display:flex}
+    .veh .readout{left:34px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">BlueICE · FLEET TELEMETRY
+      <small id="brandsub">Single vehicle. Live status and history</small></div>
+    <button id="fleetBtn" aria-pressed="false">All cars</button>
+    <select id="veh" aria-label="Choose vehicle"></select>
+  </header>
+
+  <main>
+    <div id="map"></div>
+
+    <div class="hint" id="hint"><span class="pip"></span>
+      <span>Click the vehicle to open its <b>dashboard</b></span></div>
+
+    <div id="offline" hidden style="position:absolute;top:58px;left:50%;
+      transform:translateX(-50%);z-index:5;max-width:340px;
+      background:rgba(22,27,34,.96);border:1px solid rgba(250,178,25,.45);
+      border-left:3px solid var(--warning);border-radius:8px;padding:11px 13px;font-size:12.5px">
+      <b style="color:var(--warning)">Basemap unavailable.</b>
+      Map tiles could not be reached. Check the network. Vehicle data is loaded
+      and correct; only the background map is missing.
+    </div>
+
+    <div class="rail" id="rail"></div>
+
+    <div class="dash" id="dash">
+      <div class="dh panel" style="--i:0">
+        <button class="x" id="close" aria-label="Close dashboard">&times;</button>
+        <h3 id="d-name"></h3>
+        <p id="d-sub"></p>
+        <div class="modes">
+          <button id="m-live" aria-pressed="true">Live now</button>
+          <button id="m-trace" aria-pressed="false">Trace history</button>
+        </div>
+      </div>
+      <div id="d-body" class="dbody"></div>
+    </div>
+
+    <div class="player" id="player">
+      <button id="play" aria-label="Play"></button>
+      <span class="clock" id="clock">--:--</span>
+      <div class="ribbon" id="ribbon" tabindex="0" role="slider"
+           aria-label="Position in the selected window" aria-valuemin="0"
+           aria-valuemax="100" aria-valuenow="0">
+        <svg viewBox="0 0 1000 30" preserveAspectRatio="none" aria-hidden="true">
+          <g id="ribBlocks"></g>
+        </svg>
+        <div class="ribHead" id="ribHead"></div>
+      </div>
+      <span class="st" id="pstate">—</span>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"></script>
+<script src="data.js"></script>
+<script src="track.js"></script>
+<script>
+(function () {
+  "use strict";
+  /* ---------------- basemap ----------------
+     This used to pull straight from tile.openstreetmap.org and desaturate the
+     result client-side. OpenStreetMap's tiles come from volunteer-funded
+     servers with a usage policy this product does not satisfy, and they
+     started returning 403 "Access blocked" -- correctly.
+
+     CARTO's dark basemap is built for this: it is already dark, so the
+     saturation hack goes away and the data reads better over it. It is still
+     a courtesy tier. **Before this is rolled out to a fleet, get a keyed
+     provider or self-host** -- swap `tiles` here and nothing else changes.
+     The map failing is already a designed state: the page draws all the data
+     over blank ground and says the basemap is missing. */
+  const BASEMAP = {
+    // Esri's Dark Gray Canvas. Keyless, and genuinely dark, so the old
+    // desaturation hack is gone. Note the {z}/{y}/{x} order -- Esri puts row
+    // before column, unlike almost everyone else.
+    tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/" +
+            "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"],
+    attribution: "Esri, HERE, Garmin, © OpenStreetMap contributors",
+    // This basemap genuinely stops at z16 over Oman -- z17 and beyond return an
+    // identical 2,521-byte "Map data not yet available" placeholder. Declaring
+    // 19 made MapLibre keep asking for them, and the demo route is under a
+    // kilometre across so the map zooms right past 16. Stating the real limit
+    // makes MapLibre upscale the z16 tile instead: blurrier close in, but
+    // continuous, and it never tells the reader the map is missing when it
+    // is not.
+    maxzoom: 16,
+    // Already dark: only a slight lift so the track and marker stay dominant.
+    paint: { "raster-opacity": .9, "raster-contrast": .04 },
+  };
+  /* Tried and rejected, so nobody repeats them:
+       tile.openstreetmap.org   403 Access blocked. Volunteer-funded servers
+                                with a usage policy this does not meet.
+       basemaps.cartocdn.com    serves, but every tile is watermarked
+                                "API KEY REQUIRED". Their anonymous tier is gone.
+     A courtesy tier can disappear without warning -- CARTO's just did. The
+     keyless alternative worth knowing about is OpenFreeMap
+     (https://tiles.openfreemap.org/styles/dark), which is vector rather than
+     raster, so it replaces this whole style object rather than these tiles. */
+
+  const F = window.FLEET;
+  // One track per real asset, keyed by asset id. Builds before datasets
+  // existed shipped a single window.TRACK; treat that as a one-entry map so
+  // an old data.js/track.js pair still works.
+  const TRACKS = window.TRACKS ||
+    (window.TRACK ? { [window.TRACK.device]: window.TRACK } : {});
+  let T = TRACKS[F.realAssetId] || window.TRACK || Object.values(TRACKS)[0];
+  const C = { working:"#3987e5", idle:"#d95926", carried:"#199e70",
+              off:"#6b7785", offline:"#484f58" };
+  const LBL = { working:"Working", idle:"Idling", off:"Engine off", offline:"Offline" };
+  const hhmm = t => new Date(t*1000).toISOString().slice(11,16);
+  const siteName = id => (F.sites.find(s=>s.id===id)||{}).name || "—";
+
+  F.assets.forEach(a => {
+    if (a.lastSeenMin >= F.config.offlineAfterMin) a.state = "offline";
+    a.stale = a.state !== "offline" && a.lastSeenMin >= F.config.staleAfterMin;
+  });
+  const hasHistory = a => !a.simulated && !!TRACKS[a.id];
+
+  let current = F.assets.find(a => a.id === F.realAssetId);
+  let mode = "live";
+  let open = false;                         // dashboard starts hidden
+  let winStart = T.t0, winEnd = T.t1;       // trace time window
+
+  /* ---------------- picker ---------------- */
+  const sel = document.getElementById("veh");
+  sel.innerHTML = F.assets.slice()
+    .sort((a,b) => (a.simulated - b.simulated) || a.name.localeCompare(b.name))
+    .map(a => a.generated
+      // Named for what it is, and for what it demonstrates, in the one place
+      // someone picks a machine.
+      ? `<option value="${a.id}">${a.name}  —  generated: ${a.demoCase || "fixture"}</option>`
+      : `<option value="${a.id}">${a.name} · ${a.brand} ${a.model}${a.simulated?"":"  (real data)"}</option>`)
+    .join("");
+  sel.value = F.realAssetId;
+
+  /* ---------------- map ---------------- */
+  const map = new maplibregl.Map({
+    container:"map",
+    // eslint-disable-next-line no-undef
+    style:{ version:8,
+      glyphs:"https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+      sources:{ osm:{ type:"raster", tiles:BASEMAP.tiles, tileSize:256,
+        maxzoom:BASEMAP.maxzoom, attribution:BASEMAP.attribution } },
+      layers:[ {id:"bg",type:"background",paint:{"background-color":"#0d0d0d"}},
+               {id:"osm",type:"raster",source:"osm",paint:BASEMAP.paint} ] },
+    center:[current.lon, current.lat], zoom:14, attributionControl:{compact:true}
+  });
+  window.__map = map;   // debug handle
+  map.addControl(new maplibregl.NavigationControl({showCompass:false}), "top-right");
+  map.addControl(new maplibregl.ScaleControl({maxWidth:110}), "bottom-right");
+  if (window.ResizeObserver)
+    new ResizeObserver(() => map.resize()).observe(document.getElementById("map"));
+
+  // Attach on style.load, not load: `load` waits for raster tiles, so a slow or
+  // blocked tile host would otherwise leave the page permanently blank.
+  function whenStyleReady(fn){ map.isStyleLoaded() ? fn() : map.once("style.load", fn); }
+
+  // Warn only if the basemap genuinely never arrived — isStyleLoaded() stays
+  // false while tiles merely settle and would raise a false alarm.
+  // Count tiles that actually arrived, rather than trusting a source-level
+  // "loaded" flag. That flag was missed on the Esri basemap and the page
+  // warned "Basemap unavailable" over a map that had drawn perfectly -- and a
+  // warning that cries wolf is worse than none, because the next real outage
+  // gets ignored too. `e.tile` is only present on a tile-level event, so this
+  // counts deliveries.
+  let tilesSeen = 0;
+  map.on("data", e => {
+    if (e.sourceId !== "osm" || !e.tile) return;
+    tilesSeen++;
+    // Retract the notice if tiles turn up late. A slow first load would
+    // otherwise leave "Basemap unavailable" sitting over a map that is
+    // plainly working, which teaches the reader to ignore it -- the same
+    // failure as raising it wrongly in the first place.
+    document.getElementById("offline").hidden = true;
+  });
+  setTimeout(() => {
+    if (!tilesSeen) document.getElementById("offline").hidden = false;
+  }, 9000);
+
+  // Top-down vehicle composed from SVG primitives (rects), not a drawn icon path
+  // and not an icon-font CDN: the marker is the one element that must never fail
+  // to render, and a remote font is exactly what dies on conference wifi.
+  const el = document.createElement("div");
+  el.className = "veh";
+  el.title = "Click for dashboard";
+  el.innerHTML = `
+    <svg viewBox="0 0 26 26" aria-hidden="true">
+      <rect class="wheel" x="3.6" y="6.6" width="3" height="5" rx="1.2"/>
+      <rect class="wheel" x="19.4" y="6.6" width="3" height="5" rx="1.2"/>
+      <rect class="wheel" x="3.6" y="14.6" width="3" height="5" rx="1.2"/>
+      <rect class="wheel" x="19.4" y="14.6" width="3" height="5" rx="1.2"/>
+      <rect class="body" x="5.8" y="2.4" width="14.4" height="21.2" rx="4.6"/>
+      <rect class="glass" x="8.3" y="5.4" width="9.4" height="4.6" rx="1.9"/>
+      <rect class="roof"  x="8.3" y="11.6" width="9.4" height="7.4" rx="2.2"/>
+    </svg>
+    <div class="readout" id="readout"></div>`;
+  const vehSvg = el.querySelector("svg");
+  const readout = el.querySelector("#readout");
+
+  // State and engine speed ride beside the car, so the number you are reading
+  // and the thing it describes are the same object on screen.
+  function paintReadout(state, rpm, note){
+    readout.innerHTML =
+      `<span class="rs">${LBL[state] || state}${note ? " · " + note : ""}</span>`
+      + `<span class="rr">${state === "off" || state === "offline" || rpm == null
+          ? "—" : rpm}<small>rpm</small></span>`;
+  }
+  el.addEventListener("click", ev => { ev.stopPropagation(); openDash(); });
+  const marker = new maplibregl.Marker({ element: el })
+    .setLngLat([current.lon, current.lat]).addTo(map);
+  const paintMarker = s => { el.style.color = C[s]||C.off; };
+
+  /* ---------------- fleet view ----------------
+     Every machine on the map at once, as an alternative to the single-vehicle
+     view. Markers are plain DOM here because the fleet is small; if the
+     simulated fleet is ever switched back on (BLUEICE_SIMULATED=1, ~1,075
+     assets) this must become a GPU circle layer -- a thousand DOM nodes will
+     not pan at 60 fps. */
+  let fleetMode = false;
+  const fleetMarkers = [];
+
+  function clearFleet(){
+    while (fleetMarkers.length) fleetMarkers.pop().remove();
+  }
+
+  function drawFleet(){
+    clearFleet();
+    for (const a of F.assets){
+      if (a.lat == null || a.lon == null) continue;
+      const d = document.createElement("div");
+      d.className = "fveh" + (a.id === current.id ? " sel" : "");
+      d.style.color = C[a.state] || C.off;
+      d.title = `${a.name} — ${LBL[a.state] || a.state}`;
+      d.innerHTML = `<svg viewBox="0 0 26 26" aria-hidden="true">
+        <rect class="body" x="5.8" y="2.4" width="14.4" height="21.2" rx="4.6"/>
+        <rect class="glass" x="8.3" y="5.4" width="9.4" height="4.6" rx="1.9"/></svg>`;
+      d.addEventListener("click", ev => { ev.stopPropagation(); pickAsset(a.id); });
+      fleetMarkers.push(new maplibregl.Marker({ element: d })
+        .setLngLat([a.lon, a.lat]).addTo(map));
+    }
+    // Frame the whole fleet. jumpTo-equivalent: assets sit up to 150 km apart
+    // and an animated fly across that distance is just a long blur.
+    const pts = F.assets.filter(a => a.lat != null);
+    if (pts.length){
+      const b = new maplibregl.LngLatBounds();
+      pts.forEach(a => b.extend([a.lon, a.lat]));
+      // Padding keeps markers clear of the floating panel, but it must never
+      // exceed the container: 250 + 400 px of it in a 448 px-wide pane is an
+      // impossible fit, and MapLibre silently ignores the whole call rather
+      // than complaining -- the camera simply stays where it was. Clamp to a
+      // share of the real size so this also survives a narrow window.
+      const box = map.getContainer().getBoundingClientRect();
+      const padX = Math.max(20, Math.min(260, box.width * 0.22));
+      const padY = Math.max(20, Math.min(80, box.height * 0.12));
+      map.stop();
+      map.fitBounds(b, {
+        padding: { top: padY, bottom: padY, left: padX, right: padX },
+        maxZoom: 15, duration: 0 });
+    }
+  }
+
+  // Choosing a machine from the fleet drops back into the single view, which
+  // is where every measured number lives.
+  function pickAsset(id){
+    sel.value = id;
+    fleetMode = false;
+    sel.dispatchEvent(new Event("change"));
+  }
+
+  // Fleet fuel balance.
+  //
+  // The net total on its own is a trap: on the current fixtures a 59.6 L loss
+  // and a 90.2 L unlogged delivery cancel to -31 L, hiding both. Sign splits
+  // the sum without needing a threshold -- positives are fuel missing,
+  // negatives are fuel nobody recorded delivering, and they are different
+  // problems for different people.
+  function fleetFuelHTML(){
+    const withFuel = F.assets.filter(a => {
+      const f = a.fuel;
+      return f && f.hasLevelSensor && !f.unknownGeometry
+             && f.shiftBalanceL !== undefined;
+    });
+    if (!withFuel.length) return `<div class="panel panel-pad" style="--i:0">
+      <div class="note" style="margin-top:0">No car has a fuel level sensor,
+      so there is nothing to reconcile.</div></div>`;
+
+    const bal = withFuel.map(a => a.fuel.shiftBalanceL);
+    const missing = bal.filter(v => v > 0).reduce((s, v) => s + v, 0);
+    const surplus = bal.filter(v => v < 0).reduce((s, v) => s + v, 0);
+    const net = missing + surplus;
+    const nMiss = bal.filter(v => v > 0).length;
+    const nSurp = bal.filter(v => v < 0).length;
+    const f1 = v => (v >= 0 ? "" : "−") + Math.abs(v).toFixed(1);
+    // Name the car that dominates each figure. A count alone hides the shape:
+    // four cars in "surplus" sounds like a fleet-wide problem when one of them
+    // is 90 L and the rest are sensor noise.
+    const worst = sign => {
+      const c = withFuel.filter(a => sign * a.fuel.shiftBalanceL > 0)
+        .sort((a, b) => sign * (b.fuel.shiftBalanceL - a.fuel.shiftBalanceL))[0];
+      return c ? `, mostly ${c.name}` : "";
+    };
+    const cars = n => `${n} car${n === 1 ? "" : "s"}`;
+
+    return `<div class="panel panel-pad" style="--i:0">
+        <div class="lab" style="font-size:11px;letter-spacing:.6px;
+          text-transform:uppercase;color:var(--ink-2)">Fleet fuel balance</div>
+        <div class="tot cost"><div class="k">Missing
+            <em>${cars(nMiss)} · fuel that left the tank unburned${worst(1)}</em></div>
+          <div class="v">${f1(missing)}<i>L</i></div></div>
+        <div class="tot"><div class="k">Unrecorded surplus
+            <em>${cars(nSurp)} · fuel present that no docket explains${worst(-1)}</em></div>
+          <div class="v">${f1(surplus)}<i>L</i></div></div>
+        <div class="tot"><div class="k">Net across all cars
+            <em>${withFuel.length} of ${F.assets.length} have a fuel sensor</em></div>
+          <div class="v">${f1(net)}<i>L</i></div></div>
+        <div class="note" style="margin-top:10px">Read the first two lines, not
+          the net. A loss on one car and a paperwork error on another
+          <b>cancel out</b> in the net and both disappear — they are different
+          problems, for different people.</div>
+      </div>`;
+  }
+
+  function fleetPanelHTML(){
+    const by = {};
+    for (const a of F.assets) by[a.state] = (by[a.state] || 0) + 1;
+    const order = ["working", "idle", "off", "offline"];
+    const counts = order.filter(s => by[s]).map(s =>
+      `<span><i style="background:${C[s]}"></i>${by[s]} ${LBL[s].toLowerCase()}</span>`
+    ).join("");
+
+    const rows = F.assets.slice()
+      .sort((a, b) => (a.generated - b.generated) || a.name.localeCompare(b.name))
+      .map(a => {
+        const f = a.fuel, usable = f && f.hasLevelSensor && !f.unknownGeometry;
+        // One figure per machine, and it is the one that would make someone
+        // act: how much fuel is actually in the tank.
+        const val = usable ? `${f.currentLevelL}<i> L</i>` : "—";
+        return `<div class="frow" data-id="${a.id}">
+          <i class="dot" style="background:${C[a.state] || C.off}"></i>
+          <span class="nm">${a.name}
+            <small>${a.generated ? "generated fixture"
+                                 : LBL[a.state] || a.state}</small></span>
+          <span class="val">${val}</span></div>`;
+      }).join("");
+
+    return fleetFuelHTML()
+      + `<div class="panel panel-pad" style="--i:1">
+        <div class="fcount">${counts}</div>
+        <div class="note" style="margin-top:6px">${F.assets.length} cars.
+          Click one for its full dashboard.</div>
+      </div>
+      <div class="panel panel-pad flist" style="--i:2">
+        <div class="lab" style="font-size:11px;letter-spacing:.6px;
+          text-transform:uppercase;color:var(--ink-2);margin-bottom:4px">
+          Fuel in tank</div>
+        ${rows}
+      </div>`;
+  }
+
+  function renderFleet(){
+    document.getElementById("d-name").textContent = "All cars";
+    document.getElementById("d-sub").innerHTML =
+      `${F.assets.length} in the picker &mdash; every car with data`;
+    document.getElementById("d-body").innerHTML = fleetPanelHTML();
+    document.querySelectorAll(".frow").forEach(r =>
+      r.addEventListener("click", () => pickAsset(r.dataset.id)));
+    drawFleet();
+  }
+
+  // Heading, so the vehicle points where it is going. Held from the last real
+  // movement: a parked machine keeps its last heading rather than spinning.
+  let heading = 0;
+  function faceTowards(a, b){
+    if (!a || !b) return;
+    const f1 = a.lat*Math.PI/180, f2 = b.lat*Math.PI/180;
+    const dl = (b.lon - a.lon)*Math.PI/180;
+    const y = Math.sin(dl)*Math.cos(f2);
+    const x = Math.cos(f1)*Math.sin(f2) - Math.sin(f1)*Math.cos(f2)*Math.cos(dl);
+    if (Math.abs(y) < 1e-12 && Math.abs(x) < 1e-12) return;   // no movement
+    heading = (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+    vehSvg.style.transform = `rotate(${heading.toFixed(1)}deg)`;
+  }
+
+  const emptyFC = () => ({ type:"FeatureCollection", features:[] });
+  const byKind = () => ["match",["get","kind"],
+    "working",C.working,"idle",C.idle,"carried",C.carried,C.off];
+
+  whenStyleReady(() => {
+    map.resize();
+    map.addSource("hist-obs",{type:"geojson",data:emptyFC()});
+    map.addSource("hist-inf",{type:"geojson",data:emptyFC()});
+    map.addLayer({ id:"h-inf", type:"line", source:"hist-inf",
+      paint:{ "line-color":byKind(),"line-width":2,"line-opacity":.45,"line-dasharray":[2,2.2] } });
+    map.addLayer({ id:"h-obs", type:"line", source:"hist-obs",
+      layout:{ "line-cap":"round","line-join":"round" },
+      paint:{ "line-color":byKind(),"line-width":3.4,"line-opacity":.95 } });
+    render();
+  });
+
+  /* ---------------- time window helpers ---------------- */
+  const dayStart = Math.floor(T.t0 / 86400) * 86400;      // UTC midnight of the shift
+  // A car's history now spans weeks, not one shift, so the range control has
+  // to carry a DATE. Time-only inputs silently pinned every window to the
+  // first day of the track: type 08:00-17:00 across a seven-week history and
+  // you would get nine hours in July, with no hint that was happening.
+  const toLocalDT = t => new Date(t*1000).toISOString().slice(0,16);
+  const fromLocalDT = v => {
+    const ms = Date.parse(v + "Z");          // the inputs are UTC, as labelled
+    return Number.isNaN(ms) ? null : ms/1000;
+  };
+  // Kept for the compact labels in prose and on the ribbon.
+  const toHHMM = t => new Date(t*1000).toISOString().slice(11,16);
+  const toDayHHMM = t => new Date(t*1000).toISOString().slice(0,16).replace("T", " ");
+
+  // Strict window: the user types a range and sees only that range. A segment
+  // counts, and is drawn, only if it lies entirely inside it — so what is drawn
+  // and what is totalled are always the same thing, and a three-hour inferred
+  // jump that merely clips the edge never leaks into a short window.
+  const segsIn = () => T.segments.filter(s => s.t0 >= winStart && s.t1 <= winEnd);
+  const stopsIn = () => T.dwells.filter(d => d.end >= winStart && d.start <= winEnd);
+  const ptsIn   = () => T.points.filter(p => p.t >= winStart && p.t <= winEnd);
+  // Stops straddling the window edge are clipped, not counted whole.
+  const clipMin = d => Math.max(0, (Math.min(d.end,winEnd) - Math.max(d.start,winStart)) / 60);
+
+  /* ---------------- history rendering ---------------- */
+  function setHistoryVisible(on){
+    ["h-inf","h-obs"].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id,"visibility", on ? "visible":"none");
+    });
+  }
+  function fillHistory(){
+    // The user can switch to Trace before style.load created these sources.
+    if (!map.getSource("hist-obs")) return false;
+    const inWin = segsIn();
+    const fc = p => ({ type:"FeatureCollection", features:inWin.filter(p).map(s=>({
+      type:"Feature",
+      properties:{ kind: s.carried ? "carried" : s.state, kmh:s.kmh, m:s.m, t0:s.t0 },
+      geometry:{ type:"LineString", coordinates:[s.from,s.to] } })) });
+    // A `broken` segment spans a gap too long to guess across -- days, once a
+    // car carries weeks of history. Drawing it would put a confident straight
+    // line across the map for a journey nobody recorded, so it is drawn as
+    // nothing at all: the path simply stops and resumes.
+    map.getSource("hist-obs").setData(fc(s=>s.observed));
+    map.getSource("hist-inf").setData(fc(s=>!s.observed && !s.broken));
+    return true;
+  }
+
+  /* ---------------- RPM sparkline ---------------- */
+  // UNUSED since the RPM sparkline was replaced by stateBars(). Kept because
+  // it is the only per-sample RPM view and may be wanted for a shorter window,
+  // where the density that made it unreadable across a whole shift is not a
+  // problem. Delete it if nothing has called it by the next revision.
+  function sparkline(points){
+    if (points.length < 2) return `<div class="note">Not enough samples in this window.</div>`;
+    const W=330,H=58,pad=4;
+    const maxR = Math.max(...points.map(p=>p.rpm), T.machineTopKmh ? 1400 : 1400);
+    const x = i => pad + i*(W-2*pad)/(points.length-1);
+    const y = v => H-pad - (v/maxR)*(H-2*pad);
+    const d = points.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+","+y(p.rpm).toFixed(1)).join(" ");
+    const thrY = y(900);
+    // colour the area under each sample by state via thin bars behind the line
+    const bars = points.map((p,i)=>`<rect x="${(x(i)-1).toFixed(1)}" y="${y(p.rpm).toFixed(1)}"
+      width="2" height="${(H-pad-y(p.rpm)).toFixed(1)}"
+      fill="${p.rpm<900?C.idle:C.working}" opacity=".35"/>`).join("");
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+        role="img" aria-label="RPM over the selected window">
+      ${bars}
+      <line x1="0" x2="${W}" y1="${thrY.toFixed(1)}" y2="${thrY.toFixed(1)}"
+        stroke="${C.idle}" stroke-width="1" stroke-dasharray="3 3" opacity=".8"/>
+      <path d="${d}" fill="none" stroke="#e6edf3" stroke-width="1.3" opacity=".85"/>
+    </svg>
+    <div class="sparkcap"><span>${hhmm(points[0].t)}</span>
+      <span>dashed = 900 rpm idle threshold</span><span>${hhmm(points[points.length-1].t)}</span></div>`;
+  }
+
+  // Same constants as build_data.py, so the curve agrees with the card.
+  const MOVE_GATE_M = 12, RPM_MOVING = 900;
+
+  // Great-circle metres between two fixes.
+  const R_EARTH = 6371000;
+  function metres(a, b){
+    const f1 = a.lat*Math.PI/180, f2 = b.lat*Math.PI/180;
+    const dp = f2 - f1, dl = (b.lon - a.lon)*Math.PI/180;
+    const h = Math.sin(dp/2)**2 + Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)**2;
+    return 2*R_EARTH*Math.asin(Math.sqrt(h));
+  }
+
+  // Cumulative distance using the SAME gate as the headline figure: a step
+  // counts only if it clears 12 m and RPM corroborates movement. Without that
+  // the curve would climb on GPS jitter alone and disagree with the card.
+  function cumulativeKm(pts){
+    let acc = 0;
+    return pts.map((p, i) => {
+      if (i > 0) {
+        const d = metres(pts[i-1], p);
+        if (d >= MOVE_GATE_M && p.rpm >= RPM_MOVING) acc += d;
+      }
+      return { t: p.t, v: acc/1000 };
+    });
+  }
+
+  // Single-series line + area. One measure per chart, so no legend is needed;
+  // the heading names it and the caption carries first / peak / last.
+  function lineChart(series, colour, fmt, robust){
+    if (series.length < 2) return `<div class="note">Not enough samples.</div>`;
+    const W = 330, H = 54, pad = 4;
+    const vs = series.map(p => p.v);
+    // Robust scaling: a couple of extreme outliers otherwise squash the whole
+    // series onto the baseline and the real variation becomes invisible.
+    const sorted = [...vs].sort((a,b) => a-b);
+    const q = f => sorted[Math.min(sorted.length-1, Math.floor(f*(sorted.length-1)))];
+    const min = robust ? q(0.02) : Math.min(...vs);
+    const max = robust ? q(0.98) : Math.max(...vs);
+    const span = (max - min) || 1;
+    const clipped = robust ? vs.filter(v => v < min || v > max).length : 0;
+    const x = i => pad + i*(W - 2*pad)/(series.length - 1);
+    const y = v => H - pad - ((Math.max(min, Math.min(max, v)) - min)/span)*(H - 2*pad);
+    const line = series.map((p,i) => (i?"L":"M") + x(i).toFixed(1) + "," + y(p.v).toFixed(1)).join(" ");
+    const area = `${line} L${x(series.length-1).toFixed(1)},${H-pad} L${x(0).toFixed(1)},${H-pad} Z`;
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+        role="img" aria-label="value across the shift">
+        <path d="${area}" fill="${colour}" opacity=".16"/>
+        <path d="${line}" fill="none" stroke="${colour}" stroke-width="1.4"/>
+      </svg>
+      <div class="sparkcap"><span>${fmt(Math.min(...vs))}</span>
+        <span>median ${fmt(sorted[Math.floor(sorted.length/2)])}</span>
+        <span>${fmt(Math.max(...vs))}</span></div>`
+      + (clipped ? `<div class="note" style="margin-top:6px">${clipped} outlying
+          sample${clipped===1?"":"s"} sit off-scale so the rest stays readable.</div>` : "");
+  }
+
+  // Shift totals, replacing the three charts.
+  //
+  // Every figure here is a sum over the whole shift, so nothing has to be read
+  // off a plotted line. Where a total cannot be measured it shows an em-dash
+  // and says why, rather than a zero that would read as a measurement.
+  function shiftTotals(a, f, usable, travelled){
+    const hrs = s => {
+      const h = Math.floor(s/3600), m = Math.round((s - h*3600)/60);
+      return h ? `${h} h ${String(m).padStart(2,"0")} m` : `${m} m`;
+    };
+    // Working and idling time from the state of every surviving sample.
+    const P = T.points, n = P.length;
+    let idleN = 0, workN = 0;
+    for (const p of P){
+      if (p.state === "idle") idleN++;
+      else if (p.state === "working") workN++;
+    }
+    const covered = n > 1 ? (P[n-1].t - P[0].t) : 0;
+    const per = (idleN + workN) ? covered/(idleN + workN) : 0;
+    // Absolute hours are only honest when nearly every sample survived.
+    // Spreading a sample proportion across the whole span turns 419 records
+    // into a confident "7 h 49 m idling" -- an extrapolation wearing the
+    // clothes of a measurement. Below the threshold, report the share and
+    // say what it is a share OF.
+    const trust = (T.validPct === undefined) || T.validPct >= 95;
+    const share = d => (idleN + workN) ? (100*d/(idleN+workN)).toFixed(1) : null;
+
+    const row = (k, note, value, unit, cost) =>
+      `<div class="tot${cost ? " cost" : ""}">
+         <div class="k">${k}${note ? `<em>${note}</em>` : ""}</div>
+         ${value === null || value === undefined
+            ? '<div class="v na">—</div>'
+            : `<div class="v">${value}${unit ? `<i>${unit}</i>` : ""}</div>`}
+       </div>`;
+
+    let out = trust
+      ? row("Working", "engine under load", hrs(workN*per), "")
+      + row("Idling", "engine running, producing nothing", hrs(idleN*per), "", true)
+      : row("Working", "of the records that survived", share(workN), "%")
+      + row("Idling", "of the records that survived", share(idleN), "%", true);
+    out += row("Distance", travelled ? "after the 12 m movement gate"
+                                     : "no measured travel",
+               travelled ? a.distanceKm : null, "km");
+
+    if (usable){
+      // Read as an account, top to bottom, so every line can be checked
+      // against the one below it. Without the opening level the column looks
+      // wrong -- more fuel in the tank than was ever delivered.
+      // (what went in) - (what came out). The two subtotals ride in the
+      // notes so the subtraction can be checked without extra rows.
+      const n = (f.dispenses || []).length;
+      out += row("In the tank at start", "before the first refuel",
+                 f.openingLevelL, "L")
+           + row("Fuel delivered",
+                 `${n} refuel${n === 1 ? "" : "s"} · ${f.wentInL} L went in`,
+                 f.dispensedTotalL, "L")
+           + row("Fuel burned", f.litresPerHour + " L/h average",
+                 f.burnedL, "L")
+           + row("In the tank now",
+                 (f.currentLevelPct !== null && f.currentLevelPct !== undefined
+                    ? `${f.currentLevelPct}% of ${f.tankLitres} L · ` : "")
+                 + `${f.cameOutL} L accounted for`,
+                 f.currentLevelL, "L")
+           + row("Unaccounted for", "what went in, less what came out",
+                 f.shiftBalanceL, "L", f.shiftBalanceL > 0);
+    } else {
+      out += row("Fuel burned",
+                 f && f.unknownGeometry ? "tank size unknown"
+                                        : "no fuel sensor on this machine",
+                 null, "");
+    }
+    return out + (trust ? "" : `<div class="note" style="margin-top:10px">Only
+      <b>${T.validPct}%</b> of this shift's records survived the firmware
+      defect. Shares are of what did survive; <b>hours cannot be measured</b>
+      from them, so none are shown.</div>`);
+  }
+
+  // Working vs idling, by period.
+  //
+  // This replaces a sparkline of every RPM sample. At 108,000 samples across
+  // 330 px that was ~330 samples per pixel -- not a chart, just texture, and
+  // no value could be read off it. The question a supervisor actually has is
+  // "when was it burning fuel for nothing", so the shift is bucketed and each
+  // bar shows minutes working against minutes idling.
+  function stateBars(points){
+    const usable = points.filter(p => p.state === "idle" || p.state === "working");
+    if (usable.length < 4) return `<div class="note">Not enough samples.</div>`;
+    const N = 12, t0 = points[0].t, t1 = points[points.length-1].t;
+    const span = (t1 - t0) || 1;
+    const mins = span / 60 / N;                    // minutes each bucket covers
+    const b = Array.from({length:N}, () => ({idle:0, work:0}));
+    for (const p of usable){
+      const i = Math.min(N-1, Math.floor((p.t - t0)/span * N));
+      b[i][p.state === "idle" ? "idle" : "work"]++;
+    }
+    // Convert sample counts to minutes so the axis means something.
+    const tot = b.map(x => x.idle + x.work);
+    const peak = Math.max(...b.map((x,i) => tot[i] ? mins : 0), 0.0001);
+
+    const W = 330, H = 84, pad = 4, gap = 3;
+    const bw = (W - 2*pad - gap*(N-1))/N;
+    const bars = b.map((x,i) => {
+      const n = tot[i];
+      if (!n) return "";
+      const h = (mins/peak)*(H - 2*pad);
+      const ih = h * (x.idle/n), wh = h - ih;
+      const X = pad + i*(bw+gap), base = H - pad;
+      const idleMin = (mins*x.idle/n).toFixed(0), workMin = (mins*x.work/n).toFixed(0);
+      const from = hhmm(t0 + span*i/N);
+      // A 2 px surface gap keeps the two segments legible where they meet.
+      return `<g><title>${from} — ${workMin} min working, ${idleMin} min idling</title>
+        <rect x="${X.toFixed(1)}" y="${(base-ih).toFixed(1)}" width="${bw.toFixed(1)}"
+              height="${Math.max(0,ih).toFixed(1)}" fill="${C.idle}" rx="2"/>
+        <rect x="${X.toFixed(1)}" y="${(base-h).toFixed(1)}" width="${bw.toFixed(1)}"
+              height="${Math.max(0,wh-2).toFixed(1)}" fill="${C.working}" rx="2"/></g>`;
+    }).join("");
+
+    // A missing bar means no surviving records for that stretch, not a machine
+    // sitting idle. On the corrupted logs most of the shift is missing, and
+    // reading those gaps as "switched off" would be the wrong conclusion.
+    const empty = tot.filter(n => !n).length;
+
+    return `<div class="legend"><span><i style="background:${C.working}"></i>Working</span>
+        <span><i style="background:${C.idle}"></i>Idling</span></div>
+      <svg class="spark" style="height:84px" viewBox="0 0 ${W} ${H}"
+        preserveAspectRatio="none" role="img"
+        aria-label="minutes working and idling in each period of the shift">
+        ${bars}
+      </svg>
+      <div class="sparkcap"><span>${hhmm(t0)}</span>
+        <span>each bar ≈ ${mins.toFixed(0)} min</span>
+        <span>${hhmm(t1)}</span></div>`
+      + (empty ? `<div class="note" style="margin-top:8px">${empty} of ${N}
+          periods have <b>no surviving records</b> — those bars are missing
+          data, not a machine that was switched off.</div>` : "");
+  }
+
+  // Tank level over the shift, with dispense events marked. A rate chart
+  // cannot show a theft; this can -- a step down with no dispense against it
+  // is the whole story in one glance.
+  function levelChart(f){
+    const s = f.levelSeries;
+    if (!s || s.length < 2) return `<div class="note">No level data.</div>`;
+    const W = 330, H = 96, padT = 12, padB = 16, padL = 30, padR = 6;
+    const ts = s.map(p => p[0]), vs = s.map(p => p[1]);
+    const t0 = ts[0], t1 = ts[ts.length-1];
+    // Scale from empty, not from the lowest reading: a tank drawn floor-to-
+    // ceiling exaggerates every wobble into a cliff.
+    const top = Math.ceil(Math.max(...vs)/50)*50, bot = 0;
+    const x = t => padL + (t - t0)*(W - padL - padR)/((t1 - t0) || 1);
+    const y = v => H - padB - ((v - bot)/(top - bot))*(H - padT - padB);
+    const line = s.map((p,i) => (i?"L":"M") + x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1)).join(" ");
+    const area = `${line} L${x(t1).toFixed(1)},${(H-padB).toFixed(1)} L${x(t0).toFixed(1)},${(H-padB).toFixed(1)} Z`;
+
+    // Recessive gridlines, so a value can actually be read off the chart.
+    const grid = [0, 0.5, 1].map(fr => {
+      const v = bot + (top-bot)*fr;
+      return `<line x1="${padL}" y1="${y(v).toFixed(1)}" x2="${W-padR}" y2="${y(v).toFixed(1)}"
+                stroke="var(--line)" stroke-width="1"/>
+              <text x="${padL-5}" y="${(y(v)+3).toFixed(1)}" text-anchor="end"
+                font-size="9" fill="var(--muted)">${v.toFixed(0)}</text>`;
+    }).join("");
+
+    // The unaccounted period, shaded. This is the chart's whole reason to
+    // exist: the reader should not have to find the drop themselves.
+    const bad = (f.periods||[]).filter(p => p.balanceL > 1);
+    const shade = bad.map(p =>
+      `<rect x="${x(p.start).toFixed(1)}" y="${padT}"
+             width="${Math.max(1, x(p.end)-x(p.start)).toFixed(1)}"
+             height="${(H-padT-padB).toFixed(1)}"
+             fill="${C.idle}" opacity=".13"/>`).join("");
+
+    // Refuels are annotations, not a data series, so they wear ink rather
+    // than borrowing a state colour that already means something else.
+    const marks = (f.dispenses||[]).map(d =>
+      `<g><title>Refuel: ${d.litres} L at ${hhmm(d.t)}</title>
+         <line x1="${x(d.t).toFixed(1)}" y1="${padT}" x2="${x(d.t).toFixed(1)}"
+               y2="${H-padB}" stroke="var(--ink-2)" stroke-width="1"
+               stroke-dasharray="2 2"/>
+         <text x="${x(d.t).toFixed(1)}" y="${padT-3}" text-anchor="middle"
+               font-size="9" fill="var(--ink-2)">+${d.litres}L</text></g>`).join("");
+
+    return `<svg class="spark" style="height:96px" viewBox="0 0 ${W} ${H}"
+        preserveAspectRatio="none" role="img"
+        aria-label="tank level in litres across the shift, with refuels marked">
+        ${grid}${shade}
+        <path d="${area}" fill="${C.working}" opacity=".16"/>
+        <path d="${line}" fill="none" stroke="${C.working}" stroke-width="2"/>
+        ${marks}
+      </svg>
+      <div class="sparkcap"><span>${hhmm(t0)}</span><span>litres in tank</span>
+        <span>${hhmm(t1)}</span></div>`
+      + (bad.length ? `<div class="note warn" style="margin-top:8px">The shaded
+          stretch is where <b>${bad.map(p=>p.balanceL.toFixed(1)).join(", ")} L</b>
+          left the tank without the engine burning it.</div>` : "");
+  }
+
+  /* ---------------- dashboard ---------------- */
+  function openDash(){
+    open = true;
+    render();
+    // Re-trigger the CSS stagger: remove, force reflow, re-add.
+    ["dash","rail"].forEach(id => {
+      const n = document.getElementById(id);
+      n.classList.remove("anim"); void n.offsetWidth; n.classList.add("anim");
+    });
+  }
+  document.getElementById("close").onclick = () => {
+    open = false;
+    document.getElementById("dash").className = "dash";
+    document.getElementById("rail").className = "rail";
+    document.getElementById("player").className = "player";
+    document.getElementById("hint").style.display = "";
+    if (timer) stopPlay();
+  };
+
+  function render(){
+    const a = current, canTrace = hasHistory(a);
+    if (!canTrace && mode === "trace") mode = "live";
+
+    document.getElementById("fleetBtn").setAttribute("aria-pressed", fleetMode);
+    document.getElementById("brandsub").textContent = fleetMode
+      ? "All cars. Click one for its dashboard"
+      : "Single vehicle. Live status and history";
+
+    // The two views are mutually exclusive: the single vehicle's marker, rail
+    // and playback all belong to one machine, and leaving them on top of a
+    // fleet map would describe a machine the reader is not looking at.
+    if (fleetMode){
+      if (timer){ clearInterval(timer); timer = null; setPlayIcon(false); }
+      el.style.display = "none";
+      document.getElementById("dash").className = "dash open";
+      document.getElementById("rail").className = "rail";
+      document.getElementById("hint").style.display = "none";
+      document.getElementById("player").className = "player";
+      document.querySelector(".modes").style.display = "none";
+      renderFleet();
+      showsMore(document.getElementById("dash"));
+      return;
+    }
+    clearFleet();
+    el.style.display = "";
+    document.querySelector(".modes").style.display = "";
+
+    document.getElementById("dash").className = "dash" + (open ? " open":"");
+    document.getElementById("rail").className = "rail" + (open ? " open":"");
+    document.getElementById("hint").style.display = open ? "none" : "";
+    document.getElementById("player").className =
+      "player" + (open && mode==="trace" && canTrace ? " on":"");
+
+    document.getElementById("m-trace").disabled = !canTrace;
+    document.getElementById("m-live").setAttribute("aria-pressed", mode==="live");
+    document.getElementById("m-trace").setAttribute("aria-pressed", mode==="trace");
+    document.getElementById("d-name").textContent = a.name;
+    document.getElementById("d-sub").innerHTML = a.generated
+      ? `Generated fixture &mdash; this machine does not exist<br>${
+          a.demoCase ? "Demonstrates: " + a.demoCase : ""}`
+      : `${a.brand} ${a.model} · ${a.assetClass}<br>${siteName(a.site)}`;
+
+    map.stop();   // cancel any in-flight camera animation
+
+    if (mode === "trace" && canTrace) {
+      if (!fillHistory()) { renderTrace(); map.once("style.load", render); return; }
+      setHistoryVisible(true);
+      buildRibbon();
+      const pts = ptsIn();
+      if (pts.length) {
+        const b = new maplibregl.LngLatBounds();
+        pts.forEach(p => b.extend([p.lon,p.lat]));
+        map.fitBounds(b,{ padding:{top:60,bottom:90,left:60,right:400}, duration:500, maxZoom:16 });
+      }
+      renderTrace();
+      setTime(winStart);   // fills #nowBox, so it must run after renderTrace
+    } else {
+      setHistoryVisible(false);
+      paintMarker(a.state);
+      marker.setLngLat([a.lon,a.lat]);
+      // jumpTo, not easeTo: assets sit up to 150 km apart.
+      map.jumpTo({ center:[a.lon,a.lat], zoom:Math.max(map.getZoom(),14) });
+      renderLive(a);
+    }
+    // render() rewrites .dash's class list, so the overflow hint is applied
+    // last, after whichever mode has filled the panel.
+    showsMore(document.getElementById("dash"));
+  }
+
+  function renderLive(a){
+    const dead = a.state==="off" || a.state==="offline";
+    const hasDist = a.mobile || a.naiveDistanceKm !== null;
+    paintReadout(a.state, a.rpm, a.lastSeenMin + "m ago");
+
+    // Left rail: one card per parameter.
+    const f = a.fuel, usable = f && f.hasLevelSensor && !f.unknownGeometry;
+    // A measured zero and an unmeasured one are different facts: a machine
+    // with no travel shows an em-dash, never 0 km. (DESIGN.md, empty values.)
+    const travelled = hasDist && a.distanceKm > 0;
+
+    // Order is by how much the number changes what someone does, and it is
+    // FIXED per machine type -- operators come back daily and must find the
+    // same figure in the same place (DESIGN.md, variance 3). The rail scrolls
+    // on a laptop, so whatever sits below the fold had better be the least
+    // urgent thing on it.
+    // Three cards only: what it is doing, how long it has run, how hot it is.
+    // Everything cumulative -- fuel, distance, the reconciliation -- lives in
+    // the totals panel on the right, so the rail is not a second copy of it.
+    railHTML([
+      ["Status", LBL[a.state] || a.state, "",
+       (a.state === "off" || a.state === "offline"
+          ? "" : `${a.rpm} rpm · `) + a.lastSeenMin + "m ago",
+       a.state === "idle", "txt"],
+      ["Engine hours", a.engineHours, "h", "running this shift"],
+      ["Coolant", dead ? null : a.coolant, "°C", dead ? "engine off" : ""],
+    ]);
+
+    // Right column keeps the shift chart and any caveat.
+    document.getElementById("d-body").innerHTML =
+      (hasHistory(a) ? `<div class="panel panel-pad" style="--i:1">
+        <div class="rpm" style="margin-top:0">
+          <div class="lab">Shift totals</div>
+          ${shiftTotals(a, f, usable, travelled)}
+        </div>
+      </div>` : "")
+      + (a.generated ? `<div class="panel panel-pad" style="--i:2">
+        <div class="note warn" style="margin-top:0"><b>Generated data.</b> This
+        machine does not exist. Its fuel figures — including the balance — are
+        invented to demonstrate the reconciliation, and none of them measure
+        anything. <b>Never quote them.</b></div></div>` : "")
+      + (a.simulated ? `<div class="panel panel-pad" style="--i:2">
+        <div class="note" style="margin-top:0">Live values are <b>simulated</b>. Only
+        one device is deployed. <b>History is unavailable</b>, so tracing is
+        disabled.</div></div>` : "");
+  }
+
+  // One card per parameter, stacked on the left.
+  // [label, value, unit, note, warn] -- the unit renders inside the figure so
+  // the number and what it counts are read as one thing.
+  function railHTML(rows){
+    const rail = document.getElementById("rail");
+    rail.innerHTML = rows.map(([label, value, unit, note, warn, cls], i) =>
+      `<div class="pcard${warn ? " warn" : ""}${cls ? " " + cls : ""}" style="--i:${i}">
+         <span>${label}</span>
+         ${value === null || value === undefined
+            ? '<b class="na">—</b>'
+            : `<b>${value}${unit ? `<i>${unit}</i>` : ""}</b>`}
+         ${note ? `<em>${note}</em>` : ""}
+       </div>`).join("");
+    showsMore(rail);
+  }
+
+  // Mark a scroll container that has content below the fold, so the fade
+  // appears only when something is actually hidden.
+  function showsMore(el){
+    requestAnimationFrame(() =>
+      el.classList.toggle("more", el.scrollHeight - el.clientHeight > 4));
+  }
+
+  // Litres burned between two moments, read off the cumulative burn series.
+  // Linear between stored points, which is exact for a rate integrated at a
+  // finer interval than the series is stored at.
+  function fuelUsedIn(f, t0, t1){
+    const b = f && f.burnSeries;
+    if (!b || b.length < 2) return null;
+    const at = t => {
+      if (t <= b[0][0]) return b[0][1];
+      if (t >= b[b.length-1][0]) return b[b.length-1][1];
+      let i = 0; while (i < b.length-1 && b[i+1][0] < t) i++;
+      const [ta,va] = b[i], [tb,vb] = b[i+1];
+      return tb === ta ? va : va + (vb-va)*(t-ta)/(tb-ta);
+    };
+    return Math.max(0, at(t1) - at(t0));
+  }
+
+  // Engine-running time actually MEASURED inside the window: only stretches
+  // between consecutive fixes closer together than the observed-gap limit are
+  // counted. Multiplying a sample proportion by the window length instead
+  // would report hours nobody recorded -- on the corrupted logs that would
+  // turn 419 records into a confident figure.
+  function runningSecondsIn(){
+    const p = ptsIn();
+    let s = 0;
+    for (let i = 0; i < p.length-1; i++){
+      const gap = p[i+1].t - p[i].t;
+      if (gap <= T.observedGapS && (p[i].state === "idle" || p[i].state === "working"))
+        s += gap;
+    }
+    return s;
+  }
+
+  function renderTrace(){
+    const stops = stopsIn(), segs = segsIn(), pts = ptsIn();
+    const obsKm = segs.filter(s=>s.observed).reduce((t,s)=>t+s.m,0)/1000;
+    const infKm = segs.filter(s=>!s.observed && !s.broken)
+                      .reduce((t,s)=>t+s.m,0)/1000;
+    const breaks = segs.filter(s=>s.broken).length;
+    const full = winStart===T.t0 && winEnd===T.t1;
+    const a = current, f = a.fuel;
+    const usable = f && f.hasLevelSensor && !f.unknownGeometry;
+    const litres = usable ? fuelUsedIn(f, winStart, winEnd) : null;
+    const runS = runningSecondsIn();
+    const hm = s => { const h=Math.floor(s/3600), m=Math.round((s-h*3600)/60);
+                      return h ? `${h}:${String(m).padStart(2,"0")}` : `${m}`; };
+
+    railHTML([
+      ["Status", "—", "", "scrub the ribbon", false, "txt now"],
+      // Distance is what was WATCHED, not watched plus guessed. Adding the
+      // inferred straight lines gave an excavator 7,311 km across seven weeks
+      // -- they are lines between two known points, not journeys, and summing
+      // them contradicts the gate the Live figure already applies.
+      ["Distance covered", obsKm.toFixed(2), "km",
+       `recorded as it happened` +
+       (infKm >= 0.01 || breaks
+          ? ` · ${infKm.toFixed(0)} km of straight-line guesses not counted`
+          : "")],
+      ["Fuel used", litres === null ? null : litres.toFixed(1), "L",
+       usable ? "in this window" : "no fuel sensor on this machine"],
+      ["Engine hours", runS ? hm(runS) : null, runS >= 3600 ? "h" : "min",
+       "running, gaps excluded"],
+    ]);
+    if (curT !== null) paintNow(posAt(curT), curT);
+
+    document.getElementById("d-body").innerHTML = `
+      <div class="panel panel-pad" style="--i:1">
+      <div class="range">
+        <div class="row">
+          <div style="flex:1"><label for="t0">From (UTC)</label>
+            <input type="datetime-local" id="t0" step="60"
+              min="${toLocalDT(T.t0)}" max="${toLocalDT(T.t1)}"
+              value="${toLocalDT(winStart)}"></div>
+          <div style="flex:1"><label for="t1">To (UTC)</label>
+            <input type="datetime-local" id="t1" step="60"
+              min="${toLocalDT(T.t0)}" max="${toLocalDT(T.t1)}"
+              value="${toLocalDT(winEnd)}"></div>
+        </div>
+        <div class="avail">Data available <b>${toDayHHMM(T.t0)}</b> to
+          <b>${toDayHHMM(T.t1)}</b> UTC</div>
+        <div class="out" id="rangeOut"></div>
+      </div>
+      </div>`;
+
+    document.getElementById("rangeOut").innerHTML = pts.length
+      ? `Showing <b>${toDayHHMM(winStart)} to ${toDayHHMM(winEnd)}</b> ·
+         <b>${pts.length}</b> of ${T.fixes} fixes${full ? " (full shift)" : ""}`
+      : `<span class="err">No fixes recorded between
+         ${toDayHHMM(winStart)} and ${toDayHHMM(winEnd)}.</span>`;
+
+    // range inputs
+    const t0 = document.getElementById("t0"), t1 = document.getElementById("t1");
+    const apply = () => {
+      const a = fromLocalDT(t0.value), b = fromLocalDT(t1.value);
+      if (a === null || b === null) return;
+      if (!(b > a)) {
+        document.getElementById("rangeOut").innerHTML =
+          `<span class="err">“To” must be after “From”.</span>`;
+        return;
+      }
+      winStart = Math.max(a, T.t0); winEnd = Math.min(b, T.t1);
+      if (timer) stopPlay();
+      curT = null;
+      render();
+    };
+    t0.onchange = apply; t1.onchange = apply;
+  }
+
+  /* ---------------- playback over the window ---------------- */
+  const ribbon=document.getElementById("ribbon"), ribBlocks=document.getElementById("ribBlocks"),
+        ribHead=document.getElementById("ribHead"), clock=document.getElementById("clock"),
+        pstate=document.getElementById("pstate"), playBtn=document.getElementById("play");
+  let timer=null, curT=null, lastPos=null;
+
+  // The shift as a coloured strip: one block per interval between consecutive
+  // fixes, painted by the engine state. Intervals longer than the observed-gap
+  // threshold are left UNPAINTED on purpose — those are the stretches the
+  // firmware defect destroyed, and the bare track is an honest picture of how
+  // much of the shift is actually missing.
+  function buildRibbon(){
+    const pts = ptsIn(), span = winEnd - winStart;
+    if (!ribBlocks) return;
+    if (!pts.length || span <= 0) { ribBlocks.innerHTML = ""; return; }
+    const X = t => 1000 * (t - winStart) / span;
+    let out = "";
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i+1];
+      // `contig` is authoritative when the builder supplied it: after the
+      // geometry is thinned, two kept points can be far apart in time with
+      // perfectly continuous data between them, and the timestamp test alone
+      // would paint the whole shift as one long gap.
+      const solid = (a.contig !== undefined)
+        ? a.contig : (b.t - a.t <= T.observedGapS);
+      if (!solid) continue;                          // data gap — leave bare
+      const x = X(a.t), w = Math.max(X(b.t) - x, 0.7);
+      out += `<rect x="${x.toFixed(2)}" y="0" width="${w.toFixed(2)}" height="30" `
+           + `fill="${C[a.state] || C.off}"/>`;
+    }
+    ribBlocks.innerHTML = out;
+  }
+
+  function moveHead(t){
+    const span = winEnd - winStart;
+    const f = span > 0 ? Math.min(1, Math.max(0, (t - winStart) / span)) : 0;
+    ribHead.style.left = (f * 100) + "%";
+    ribbon.setAttribute("aria-valuenow", Math.round(f * 100));
+    ribbon.setAttribute("aria-valuetext", hhmm(t) + " UTC");
+  }
+
+  function posAt(t){
+    const P = T.points;
+    if(t<=P[0].t) return P[0];
+    if(t>=P[P.length-1].t) return P[P.length-1];
+    let i=0; while(i<P.length-1 && P[i+1].t<t) i++;
+    const a=P[i], b=P[i+1], f=(b.t-a.t)>0 ? (t-a.t)/(b.t-a.t) : 0;
+    return { lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f, rpm:a.rpm, state:a.state };
+  }
+  function setTime(t){
+    const p = posAt(t);
+    faceTowards(lastPos, p);
+    lastPos = p;
+    marker.setLngLat([p.lon,p.lat]);
+    paintMarker(p.state);
+    clock.textContent = hhmm(t);
+    pstate.textContent = p.state==="off" ? "engine off" : `${p.rpm} rpm · ${p.state}`;
+    curT = t;
+    moveHead(t);
+    paintNow(p, t);
+  }
+
+  // The state and engine speed at the scrubbed moment. Rewritten on every
+  // setTime call, so it tracks both the scrubber and playback.
+  function paintNow(p, t){
+    if (mode !== "trace") return;
+    paintReadout(p.state, p.rpm, hhmm(t) + " UTC");
+    // The Status card follows the scrubber, so the rail always describes the
+    // same moment the marker is showing rather than the window as a whole.
+    const card = document.querySelector(".pcard.now");
+    if (card){
+      card.querySelector("b").textContent = LBL[p.state] || p.state;
+      card.querySelector("b").className = "";
+      card.querySelector("em").textContent =
+        (p.state === "off" ? "" : `${p.rpm} rpm · `) + hhmm(t) + " UTC";
+      card.classList.toggle("warn", p.state === "idle");
+    }
+  }
+  const timeFromX = clientX => {
+    const r = ribbon.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    return winStart + (winEnd - winStart) * f;
+  };
+  let dragging = false;
+  ribbon.addEventListener("mousedown", e => { dragging = true; setTime(timeFromX(e.clientX)); });
+  window.addEventListener("mousemove", e => { if (dragging) setTime(timeFromX(e.clientX)); });
+  window.addEventListener("mouseup", () => { dragging = false; });
+  ribbon.addEventListener("keydown", e => {
+    const step = (winEnd - winStart) / 100;
+    if (e.key === "ArrowRight") { setTime(Math.min(winEnd, (curT ?? winStart) + step)); e.preventDefault(); }
+    if (e.key === "ArrowLeft")  { setTime(Math.max(winStart, (curT ?? winStart) - step)); e.preventDefault(); }
+    if (e.key === "Home") { setTime(winStart); e.preventDefault(); }
+    if (e.key === "End")  { setTime(winEnd); e.preventDefault(); }
+  });
+  // Composed from SVG primitives. The unicode play/pause glyphs render as
+  // colour emoji on some platforms, which looks broken next to mono numerals.
+  const ICON_PLAY  = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">'
+    + '<polygon points="4,2.5 13,8 4,13.5" fill="currentColor"/></svg>';
+  const ICON_PAUSE = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">'
+    + '<rect x="4" y="2.5" width="3" height="11" rx="1" fill="currentColor"/>'
+    + '<rect x="9" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>';
+  const setPlayIcon = playing => {
+    playBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+    playBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
+  };
+  const stopPlay = () => { clearInterval(timer); timer=null; setPlayIcon(false); };
+  setPlayIcon(false);   // the button starts empty otherwise
+  playBtn.onclick = () => {
+    if (timer) { stopPlay(); return; }
+    const span = winEnd - winStart;
+    if (span <= 0) return;
+    if (curT === null || curT >= winEnd) curT = winStart;   // replay from the top
+    setPlayIcon(true);
+    timer = setInterval(() => {
+      const next = curT + span / 500;                        // ~30 s of wall clock
+      if (next >= winEnd) { setTime(winEnd); stopPlay(); return; }
+      setTime(next);
+    }, 60);
+  };
+
+  /* ---------------- controls ---------------- */
+  sel.onchange = () => {
+    current = F.assets.find(a=>a.id===sel.value);
+    if (timer){ clearInterval(timer); timer=null; setPlayIcon(false); }
+    // Switch the history with the asset, and reset the window to that
+    // shift's own bounds -- carrying August's times into a June shift would
+    // silently show an empty window.
+    if (TRACKS[current.id]) T = TRACKS[current.id];
+    if (!hasHistory(current)) mode = "live";
+    winStart = T.t0; winEnd = T.t1;
+    render();
+  };
+  document.getElementById("fleetBtn").onclick = () => {
+    fleetMode = !fleetMode;
+    if (fleetMode) open = true;      // the fleet panel IS the dashboard here
+    render();
+  };
+  document.getElementById("m-live").onclick  = () => { mode="live";  render(); };
+  document.getElementById("m-trace").onclick = () => { mode="trace"; render(); };
+
+  paintMarker(current.state);
+  render();     // paints the marker; the dashboard stays closed until clicked
+
+  /* ---------------- staying current ----------------
+     The page loads data.js and track.js once, as <script src>, and had no way
+     to notice a newer build. A tab left open all day kept showing the figures
+     it loaded at open time while the bucket behind it was rebuilt every five
+     minutes -- and the user guide claimed it updated itself.
+
+     This polls for the build stamp and reloads when it changes.
+
+     A full reload, not an in-place patch of data.js: the two files must come
+     from the SAME build. Refreshing one without the other is exactly the
+     mismatch the publish step stages and copies to avoid, and would show a
+     machine's current status against another build's history.
+
+     Selection and mode carry across in sessionStorage, so it reads as an
+     update rather than a reset. Every part is wrapped: a browser with storage
+     disabled, or an unreachable data.js, must leave the page as it was rather
+     than break it.
+  */
+  const REFRESH_MS = 120000;            // matches data.js's 120 s cache header
+  const VIEW_KEY = "blueice.view";
+
+  function saveView() {
+    try {
+      sessionStorage.setItem(VIEW_KEY, JSON.stringify({
+        asset: current ? current.id : null, mode: mode, fleet: fleetMode,
+      }));
+    } catch (e) { /* storage disabled: the reload just starts fresh */ }
+  }
+
+  (function restoreView() {
+    let s = null;
+    try { s = JSON.parse(sessionStorage.getItem(VIEW_KEY) || "null"); }
+    catch (e) { return; }
+    if (!s) return;
+    try {
+      sessionStorage.removeItem(VIEW_KEY);
+      if (s.asset && F.assets.some(a => a.id === s.asset)) pickAsset(s.asset);
+      if (s.mode === "trace" && hasHistory(current)) mode = "trace";
+      if (s.fleet) { fleetMode = true; open = true; }
+      render();
+    } catch (e) { /* restoring is a convenience, never a requirement */ }
+  })();
+
+  let refreshTimer = null;
+
+  async function checkForNewBuild() {
+    if (document.hidden) return;        // a background tab need not poll
+    try {
+      const r = await fetch("data.js", { cache: "no-store" });
+      if (!r.ok) return;
+      // Only the stamp is needed. Reading a slice avoids pulling and parsing
+      // 70 KB of JSON every two minutes just to compare a date.
+      const head = (await r.text()).slice(0, 400);
+      const m = head.match(/"generated"\s*:\s*"([^"]+)"/);
+      if (m && F.generated && m[1] !== F.generated) {
+        saveView();
+        location.reload();
+      }
+    } catch (e) { /* offline or blocked: try again on the next tick */ }
+  }
+
+  function startPolling() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(checkForNewBuild, REFRESH_MS);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { clearInterval(refreshTimer); refreshTimer = null; }
+    else { checkForNewBuild(); startPolling(); }
+  });
+  startPolling();
+})();
+</script>
+</body>
+</html>

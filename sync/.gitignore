@@ -1,0 +1,8 @@
+# Machine-local, and none of it belongs in version control.
+config.json          # may name a bucket and a profile
+state.json
+state.json.tmp
+state.json.corrupt
+inbox/
+sync.log
+__pycache__/

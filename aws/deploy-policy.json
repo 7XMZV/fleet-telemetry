@@ -1,0 +1,87 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadRawTelemetry",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::your-telemetry-bucket",
+        "arn:aws:s3:::your-telemetry-bucket/*"
+      ]
+    },
+    {
+      "Sid": "OwnTheSiteBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket", "s3:PutBucketPolicy", "s3:GetBucketPolicy",
+        "s3:PutBucketPublicAccessBlock", "s3:GetBucketLocation",
+        "s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::blueice-fleet-site",
+        "arn:aws:s3:::blueice-fleet-site/*"
+      ]
+    },
+    {
+      "Sid": "TheBuildFunction",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction", "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration", "lambda:GetFunction",
+        "lambda:InvokeFunction", "lambda:AddPermission",
+        "lambda:PublishLayerVersion", "lambda:GetLayerVersion",
+        "lambda:TagResource"
+      ],
+      "Resource": [
+        "arn:aws:lambda:eu-north-1:123456789012:function:blueice-fleet-build",
+        "arn:aws:lambda:eu-north-1:123456789012:layer:blueice-pycryptodome",
+        "arn:aws:lambda:eu-north-1:123456789012:layer:blueice-pycryptodome:*"
+      ]
+    },
+    {
+      "Sid": "TheFunctionsExecutionRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole", "iam:GetRole", "iam:PassRole",
+        "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:AttachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::123456789012:role/blueice-fleet-build-role"
+    },
+    {
+      "Sid": "TheFiveMinuteSchedule",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule", "events:PutTargets", "events:DescribeRule",
+        "events:DisableRule", "events:EnableRule"
+      ],
+      "Resource": "arn:aws:events:eu-north-1:123456789012:rule/blueice-fleet-build-5min"
+    },
+    {
+      "Sid": "LogsSoFailuresAreVisible",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup", "logs:CreateLogStream",
+        "logs:PutLogEvents", "logs:DescribeLogGroups", "logs:DescribeLogStreams",
+        "logs:GetLogEvents", "logs:FilterLogEvents"
+      ],
+      "Resource": "arn:aws:logs:eu-north-1:123456789012:log-group:/aws/lambda/blueice-fleet-build*"
+    },
+    {
+      "Sid": "HttpsInFrontOfTheBucket",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution", "cloudfront:GetDistribution",
+        "cloudfront:UpdateDistribution", "cloudfront:CreateInvalidation",
+        "cloudfront:ListDistributions",
+        "cloudfront:CreateOriginAccessControl", "cloudfront:GetOriginAccessControl",
+        "cloudfront:ListOriginAccessControls",
+        "cloudfront:CreateFunction", "cloudfront:UpdateFunction",
+        "cloudfront:PublishFunction", "cloudfront:DescribeFunction",
+        "cloudfront:GetFunction", "cloudfront:ListFunctions",
+        "cloudfront:TagResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# Company data and credentials - never commit these
+# (make-public.py already excludes them; this is the second line of defence,
+#  because the first one is a script somebody could forget to run)
+Not mine/
+**/inbox/
+**/state.json
+**/sync.log
+**/config.json
+**/config.s3.json
+**/config.local-backup.json
+*accessKeys*
+*credentials*
+*.pem
+.env
+
+# Built from real telemetry - contains actual machine positions
+dashboard/data.js
+dashboard/track.js
+*_decoded.csv
+blueice_fuel_tanks*.csv
+
+# Generated: run `python make_fuel_demo.py` to recreate
+demo/
+*.pptx
+*.pdf
+
+# Build output
+__pycache__/
+*.pyc
+aws/dist/
+node_modules/
