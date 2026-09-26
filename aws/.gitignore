@@ -1,0 +1,3 @@
+
+# holds a live shared credential - never commit
+auth-function.built.js

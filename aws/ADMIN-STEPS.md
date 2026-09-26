@@ -1,8 +1,28 @@
 # The public side — three administrator steps
 
+> ## STATUS: DONE. The dashboard is live.
+>
+> **https://dXXXXXXXXXXXXX.cloudfront.net** — account `123456789012`,
+> distribution serving `your-site-bucket`, shared-password gate in front.
+>
+> Verified 21 September 2026, unauthenticated, from outside the account:
+>
+> | Check | Result |
+> |---|---|
+> | Gate is live | `401` with `WWW-Authenticate: Basic realm="BlueICE Fleet Telemetry"` |
+> | Function is **published**, not merely created | `X-Cache: FunctionGeneratedResponse from cloudfront` |
+> | Gate covers every path, not just `/` | `/`, `/index.html`, `/data.js`, `/track.js`, `/_state/state.json`, `/favicon.ico` and an unknown path all return `401` |
+> | Edge location serves the Gulf | `X-Amz-Cf-Pop: MCT50-P3` (Muscat) — `PriceClass_200` behaving as intended |
+> | Bucket policy applied | the dashboard renders once the credential is supplied, so CloudFront can read the bucket |
+>
+> The three steps below are kept as the record of how it was built, and as the
+> procedure if it ever has to be rebuilt. **To change the password, see
+> [Rotating the password](#rotating-the-password) at the end — not step 1.**
+
+
 The build half runs inside the `blueice-fleet-deploy-role`: a Lambda decodes
 new telemetry every 5 minutes and writes `index.html`, `data.js` and `track.js`
-into `s3://blueice-fleet-site/`. That bucket stays private and nothing is
+into `s3://your-site-bucket/`. That bucket stays private and nothing is
 reachable from the internet.
 
 These three steps put it online. All three need permissions the deploy role
@@ -23,6 +43,10 @@ Replace `__CREDENTIAL__` with base64 of `user:password`. To generate it:
 ```bash
 python -c "import base64;print(base64.b64encode(b'blueice:CHOSEN-PASSWORD').decode())"
 ```
+
+Save the substituted copy as **`auth-function.built.js`** — that is the filename
+the next command reads. Keep `auth-function.js` with the `__CREDENTIAL__`
+placeholder intact, so the credential is never committed alongside the source.
 
 Then:
 
@@ -60,11 +84,19 @@ changes.
 
 `distribution-config.json` is ready. Three things to substitute:
 
+`distribution-with-tags.json` wraps it with tags and is what the command below
+reads. Only **one** field still needs substituting, in that file:
+
 | Field | Value |
 |---|---|
-| `Origins.Items[0].OriginAccessControlId` | `E25UBTALZV3Q69` (already created) |
-| `Origins.Items[0].DomainName` | `blueice-fleet-site.s3.eu-north-1.amazonaws.com` |
-| `DefaultCacheBehavior.FunctionAssociations.Items[0].FunctionARN` | the ARN printed by step 1 |
+| `DistributionConfig.DefaultCacheBehavior.FunctionAssociations.Items[0].FunctionARN` | the ARN printed by step 1 |
+
+The other two are already filled in and verified:
+
+| Field | Value |
+|---|---|
+| `OriginAccessControlId` | `EXXXXXXXXXXXXX` — confirmed live, name `your-site-bucket-oac`, signing `always` |
+| `DomainName` | `your-site-bucket.s3.eu-north-1.amazonaws.com` |
 
 ```bash
 aws cloudfront create-distribution-with-tags \
@@ -89,7 +121,7 @@ naming one that does not exist locks the bucket to nobody.
 step 2:
 
 ```bash
-aws s3api put-bucket-policy --bucket blueice-fleet-site \
+aws s3api put-bucket-policy --bucket your-site-bucket \
   --policy file://bucket-policy.json
 ```
 
@@ -131,4 +163,59 @@ To watch it:
 
 ```bash
 aws logs tail /aws/lambda/blueice-fleet-build --follow
+```
+
+---
+
+## Rotating the password
+
+The shared credential should be changed when someone who knew it leaves, if it
+has been sent over an insecure channel, or on any routine schedule the company
+prefers. It takes about two minutes and nothing else in the system changes.
+
+**Generate the new credential without it touching your shell history:**
+
+```bash
+python make-credential.py
+```
+
+It prompts hidden, writes `auth-function.built.js`, and prints the base64
+string. `auth-function.js` keeps its `__CREDENTIAL__` placeholder, and
+`auth-function.built.js` is git-ignored.
+
+**Then publish it, by whichever route you have access to.**
+
+*Console* — CloudFront → Functions → `blueice-fleet-auth` → **Edit code**,
+replace the string after `Basic ` with the new base64 → **Save changes** →
+**Publish** tab → **Publish function**. Saving alone does nothing to live
+traffic; publishing is what applies it.
+
+*CLI* — needs `cloudfront:DescribeFunction`, `UpdateFunction` and
+`PublishFunction`, which the `blueice-fleet-deploy-role` does **not** have.
+Run these from this folder:
+
+```bash
+aws cloudfront describe-function --name blueice-fleet-auth --query ETag --output text
+```
+
+```bash
+aws cloudfront update-function --name blueice-fleet-auth --if-match ETAG_FROM_ABOVE --function-config 'Comment=BlueICE shared-password gate,Runtime=cloudfront-js-2.0' --function-code fileb://auth-function.built.js
+```
+
+```bash
+aws cloudfront publish-function --name blueice-fleet-auth --if-match ETAG_FROM_UPDATE
+```
+
+**Afterwards**, confirm the old credential is dead and the gate still stands:
+
+```bash
+python -c "import urllib.request,urllib.error;
+try: urllib.request.urlopen('https://dXXXXXXXXXXXXX.cloudfront.net/')
+except urllib.error.HTTPError as e: print(e.code, e.headers.get('WWW-Authenticate'))"
+```
+
+Expect `401 Basic realm="BlueICE Fleet Telemetry"`. Then delete the built file:
+
+```bash
+rm auth-function.built.js
 ```

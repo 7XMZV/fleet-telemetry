@@ -144,7 +144,7 @@ def load_handler(env):
 BASE_ENV = {
     "RAW_BUCKET": "your-telemetry-bucket",
     "RAW_PREFIX": "device-logs/",
-    "SITE_BUCKET": "blueice-fleet-site-TEST",
+    "SITE_BUCKET": "your-site-bucket-TEST",
     "AWS_REGION": "eu-north-1",
 }
 

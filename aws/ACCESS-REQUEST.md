@@ -15,7 +15,7 @@ attached policy `deploy-policy.json` attached to it, and an access key for it.
 **What that policy allows,** and nothing else:
 
 - read `s3://your-telemetry-bucket` (the telemetry we already have)
-- create and write one new bucket, `blueice-fleet-site`
+- create and write one new bucket, `your-site-bucket`
 - create one Lambda function, `blueice-fleet-build`, and its execution role
 - create one EventBridge schedule and one CloudFront distribution
 - write its own CloudWatch logs

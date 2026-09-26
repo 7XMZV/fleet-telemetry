@@ -22,9 +22,9 @@ Also removed because the permission was not granted:
 The script now REUSES these pre-created resources and fails loudly if any of
 them is missing, rather than trying to create them:
 
-    site bucket      blueice-fleet-site
+    site bucket      your-site-bucket
     execution role   arn:aws:iam::123456789012:role/blueice-fleet-build-role
-    OAC              E25UBTALZV3Q69
+    OAC              EXXXXXXXXXXXXX
 
 What it still does, all of it scoped to the named resources above:
 
@@ -57,9 +57,9 @@ REGION = "eu-north-1"
 ACCOUNT = "123456789012"
 
 # ---- pre-created by the administrator. Reused, never created. --------------
-SITE_BUCKET = "blueice-fleet-site"
+SITE_BUCKET = "your-site-bucket"
 EXEC_ROLE_ARN = "arn:aws:iam::%s:role/blueice-fleet-build-role" % ACCOUNT
-OAC_ID = "E25UBTALZV3Q69"
+OAC_ID = "EXXXXXXXXXXXXX"
 
 # ---- names fixed by the administrator --------------------------------------
 RAW_BUCKET = "your-telemetry-bucket"

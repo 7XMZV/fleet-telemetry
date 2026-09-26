@@ -9,9 +9,11 @@
     "Items": [
       {
         "Id": "blueice-site",
-        "DomainName": "blueice-fleet-site.s3.eu-north-1.amazonaws.com",
-        "OriginAccessControlId": "REPLACE_WITH_OAC_ID",
-        "S3OriginConfig": { "OriginAccessIdentity": "" }
+        "DomainName": "your-site-bucket.s3.eu-north-1.amazonaws.com",
+        "OriginAccessControlId": "EXXXXXXXXXXXXX",
+        "S3OriginConfig": {
+          "OriginAccessIdentity": ""
+        }
       }
     ]
   },
@@ -20,8 +22,17 @@
     "ViewerProtocolPolicy": "redirect-to-https",
     "AllowedMethods": {
       "Quantity": 2,
-      "Items": ["GET", "HEAD"],
-      "CachedMethods": { "Quantity": 2, "Items": ["GET", "HEAD"] }
+      "Items": [
+        "GET",
+        "HEAD"
+      ],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": [
+          "GET",
+          "HEAD"
+        ]
+      }
     },
     "Compress": true,
     "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",

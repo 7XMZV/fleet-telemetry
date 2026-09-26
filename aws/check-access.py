@@ -47,7 +47,7 @@ CHECKS = [
      "serves the page over HTTPS with the password gate"),
     ("S3 buckets",
      ["s3api", "list-buckets"],
-     "creates the blueice-fleet-site bucket"),
+     "creates the your-site-bucket bucket"),
 ]
 
 DENIED = ("AccessDenied", "not authorized", "AccessDeniedException",

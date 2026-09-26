@@ -13,7 +13,7 @@ device  ──►  S3 your-telemetry-bucket/device-logs/     (already exists)
                     │  · ~1 s when the bucket is unchanged (most runs)
                     │  · ~2 min when there is new data
                     ▼
-             S3 blueice-fleet-site  (private)
+             S3 your-site-bucket  (private)
                     │
                     ▼
              CloudFront  ──►  https://d….cloudfront.net
@@ -96,7 +96,7 @@ python deploy.py --profile blueice-deploy --code-only
 
 | Resource | Name | Notes |
 |---|---|---|
-| S3 bucket | `blueice-fleet-site` | Private. Public access fully blocked. |
+| S3 bucket | `your-site-bucket` | Private. Public access fully blocked. |
 | Lambda layer | `blueice-pycryptodome` | The decoder's one binary dependency. |
 | IAM role | `blueice-fleet-build-role` | Read raw, write site, write logs. |
 | Lambda | `blueice-fleet-build` | 3008 MB, 600 s timeout, 2048 MB `/tmp`. |
@@ -155,7 +155,7 @@ aws logs tail /aws/lambda/blueice-fleet-build --follow
 Much less than the deployer. `deploy.py` attaches this inline:
 
 - read `your-telemetry-bucket`
-- read and write `blueice-fleet-site`
+- read and write `your-site-bucket`
 - write its own CloudWatch logs
 - create CloudFront invalidations
 

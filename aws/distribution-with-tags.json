@@ -1,0 +1,67 @@
+{
+  "DistributionConfig": {
+    "CallerReference": "blueice-fleet-dashboard-1",
+    "Comment": "BlueICE fleet dashboard",
+    "Enabled": true,
+    "DefaultRootObject": "index.html",
+    "PriceClass": "PriceClass_200",
+    "Origins": {
+      "Quantity": 1,
+      "Items": [
+        {
+          "Id": "blueice-site",
+          "DomainName": "your-site-bucket.s3.eu-north-1.amazonaws.com",
+          "OriginAccessControlId": "EXXXXXXXXXXXXX",
+          "S3OriginConfig": {
+            "OriginAccessIdentity": ""
+          }
+        }
+      ]
+    },
+    "DefaultCacheBehavior": {
+      "TargetOriginId": "blueice-site",
+      "ViewerProtocolPolicy": "redirect-to-https",
+      "AllowedMethods": {
+        "Quantity": 2,
+        "Items": [
+          "GET",
+          "HEAD"
+        ],
+        "CachedMethods": {
+          "Quantity": 2,
+          "Items": [
+            "GET",
+            "HEAD"
+          ]
+        }
+      },
+      "Compress": true,
+      "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+      "FunctionAssociations": {
+        "Quantity": 1,
+        "Items": [
+          {
+            "EventType": "viewer-request",
+            "FunctionARN": "REPLACE_WITH_FUNCTION_ARN"
+          }
+        ]
+      }
+    }
+  },
+  "Tags": {
+    "Items": [
+      {
+        "Key": "Project",
+        "Value": "BlueICE-Fleet"
+      },
+      {
+        "Key": "Component",
+        "Value": "dashboard-delivery"
+      },
+      {
+        "Key": "ManagedBy",
+        "Value": "blueice-fleet-deploy-role"
+      }
+    ]
+  }
+}
